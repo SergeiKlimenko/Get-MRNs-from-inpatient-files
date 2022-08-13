@@ -1,0 +1,159 @@
+Option Explicit
+
+Function ExtractMRNs() As Scripting.Dictionary
+
+    Dim oFSO As Object
+    Dim oFolder As Object
+    Dim oFile As Object
+    Dim wdDoc As Object
+    
+    Set oFSO = CreateObject("Scripting.FileSystemObject")
+    Set oFolder = oFSO.GetFolder(ThisWorkbook.Path)
+    
+    Dim hospitalNos As New Scripting.Dictionary
+    
+    Dim age As Integer
+    Dim hospitalNo As String
+    
+    For Each oFile In oFolder.Files
+        
+        If InStr(LCase(oFile.Name), "clotting") = 0 And Right(oFile.Name, 4) <> "xlsm" And Right(oFile.Name, 3) <> "doc" Then
+        
+            Set wdDoc = GetObject(oFile.Path) 'open doc file
+            
+                Dim tbl As Object
+                For Each tbl In wdDoc.tables
+                    
+                    Dim rw As Object
+                    For Each rw In tbl.Rows
+                        
+                        age = 0
+                        hospitalNo = ""
+                        
+                        Dim cellText As String
+                        cellText = rw.Range.Cells(1).Range.Text
+                        
+                        If InStr(LCase(cellText), "gen med") = 0 And InStr(LCase(cellText), "medical outlier") = 0 Then
+                            
+                            Dim cellContent As Variant
+                            cellContent = Replace(Replace(Replace(Replace(rw.Range.Cells(1).Range.Text, Chr(9), " "), Chr(10), " "), Chr(11), " "), Chr(13), " ")
+                            cellContent = Trim(Replace(cellContent, "  ", " "))
+                            cellContent = Split(cellContent)
+                            
+                            Call getHospitalNoAndAge(cellContent, hospitalNo, age)
+                            
+                            If age > 17 Or age = 0 Then
+                            
+                                If hospitalNo <> "" And Not hospitalNos.Exists(hospitalNo) Then
+                                    hospitalNos.Add hospitalNo, oFile.Name
+                                End If
+                                
+                            End If
+                            
+                        End If
+                        
+                    Next rw
+                    
+                Next tbl
+            
+        End If
+              
+    Next oFile
+    
+    Set ExtractMRNs = hospitalNos
+    
+End Function
+
+
+Sub PopulateList()
+    
+    Cells.Clear
+    
+    Dim i As Integer
+    
+    Dim hospitalNos As New Scripting.Dictionary
+    Set hospitalNos = ExtractMRNs
+    
+    Dim key As Variant
+    For Each key In hospitalNos.Keys
+        Cells(i + 1, 1) = key
+        Cells(i + 1, 2) = hospitalNos(key)
+        i = i + 1
+    Next key
+    
+End Sub
+    
+    
+Function getHospitalNoAndAge(cellContent, ByRef hospitalNo As String, ByRef age As Integer)
+
+    Dim j As Integer
+    For j = 0 To UBound(cellContent)
+    
+        Dim wrd As String
+        wrd = cellContent(j)
+        
+        Dim ending As String
+        ending = LCase(Right(wrd, 3))
+        
+        If wrd <> "" Then
+                                                    
+            If Len(wrd) = 7 And IsNumeric(Right(wrd, 6)) Then
+                hospitalNo = wrd
+            
+            ElseIf 1 < Len(wrd) < 5 And (Right(ending, 1) = "y" Or Right(ending, 1) = "f" Or Right(ending, 1) = "m" Or _
+                Right(ending, 2) = "yr" Or ending = "yrs") Then
+                
+                Dim digits As String
+                Dim splitIndex As Integer
+                
+                Dim k As Integer
+                For k = 1 To Len(wrd)
+                    If Not IsNumeric(Mid(wrd, k, 1)) Then
+                        splitIndex = k - 1
+                        Exit For
+                    End If
+                Next k
+                
+                digits = Left(wrd, splitIndex)
+            
+                If Len(digits) > 0 Then
+                    age = CInt(digits)
+                End If
+                
+            ElseIf age = 0 And (Len(wrd) - Len(Replace(wrd, "/", "")) = 2 Or Len(wrd) - Len(Replace(wrd, ".", "")) = 2) Then
+                
+                Dim delimitator As String
+                If Len(wrd) - Len(Replace(wrd, "/", "")) = 2 Then
+                    delimitator = "/"
+                ElseIf Len(wrd) - Len(Replace(wrd, ".", "")) = 2 Then
+                    delimitator = "."
+                End If
+                
+                Dim yearOfBirth As Variant
+                yearOfBirth = Split(wrd, delimitator)(2)
+                
+                If Len(yearOfBirth) = 2 Then
+                    
+                    If CInt(Right(CStr(Year(Now)), 2)) - CInt(yearOfBirth) < 0 Then
+                        yearOfBirth = "19" & yearOfBirth
+                    Else
+                        yearOfBirth = "20" & yearOfBirth
+                    End If
+                    
+                End If
+                
+                age = Year(Now) - yearOfBirth
+                
+            ElseIf age = 0 And LCase(wrd) = "f" Or LCase(wrd) = "m" Then
+                
+                If IsNumeric(cellContent(j - 1)) Then
+                    age = cellContent(j - 1)
+                End If
+                
+            End If
+        
+        End If
+        
+    Next j
+    
+End Function
